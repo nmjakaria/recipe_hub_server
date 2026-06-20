@@ -55,6 +55,30 @@ const verifyToken = async (req, res, next) => {
     }
 };
 
+const optionalVerifyToken = async (req, res, next) => {
+    const authHeader = req?.headers.authorization;
+
+    // If there's no token, we don't throw an error. We just treat them as a guest and move on.
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return next();
+    }
+
+    const token = authHeader.split(" ")[1];
+    try {
+        const { payload } = await jwtVerify(token, JWKS);
+        req.user = {
+            id: payload.id || payload.sub,
+            email: payload.email,
+            role: payload.role || 'user'
+        };
+    } catch (error) {
+        // If token is expired or invalid, log it but don't block the request
+        console.log("Optional auth token invalid/expired, reading as guest");
+    }
+
+    next();
+};
+
 // Connect to MongoDB ONCE when the server starts
 async function startServer() {
     try {
@@ -63,6 +87,8 @@ async function startServer() {
         const db = client.db("recipehub_db");
         const recipesCollection = db.collection("recipes");
         const recipeLikesCollection = db.collection("recipeLikes");
+        const favoritesCollection = db.collection("recipeFavorites");
+        const reportsCollection = db.collection("reports");
 
         // --- PUBLIC ROUTES ---
 
@@ -79,11 +105,41 @@ async function startServer() {
             res.send(result);
         });
 
-        app.get('/api/recipes/:id', async (req, res) => {
-            const id = req.params.id;
-            const query = { _id: new ObjectId(id) };
-            const result = await recipesCollection.findOne(query);
-            res.send(result);
+        // ✅ Clean and Hybrid: Accessible by everyone, but tracks state for logged-in accounts
+        app.get('/api/recipes/:id', optionalVerifyToken, async (req, res) => {
+            try {
+                const id = req.params.id;
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({ message: "Invalid Recipe ID format" });
+                }
+
+                const recipeObjectId = new ObjectId(id);
+                const recipe = await recipesCollection.findOne({ _id: recipeObjectId });
+
+                if (!recipe) {
+                    return res.status(404).send({ message: "Recipe not found" });
+                }
+
+                let isLikedByUser = false;
+                let isFavoritedByUser = false;
+
+                // 🌟 If optionalVerifyToken found a user, check their engagement records
+                if (req.user) {
+                    const userId = req.user.id;
+
+                    const likedRecord = await recipeLikesCollection.findOne({ recipeId: recipeObjectId, userId });
+                    const favoritedRecord = await favoritesCollection.findOne({ recipeId: recipeObjectId, userId });
+
+                    if (likedRecord) isLikedByUser = true;
+                    if (favoritedRecord) isFavoritedByUser = true;
+                }
+
+                // Return combined data matrix
+                res.send({ ...recipe, isLikedByUser, isFavoritedByUser });
+            } catch (error) {
+                console.error("Error fetching recipe:", error);
+                res.status(500).send({ message: "Internal server error fetching recipe details" });
+            }
         });
 
         // --- PROTECTED ROUTES (Using verifyToken middleware) ---
