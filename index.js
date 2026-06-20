@@ -164,6 +164,34 @@ async function startServer() {
             }
         });
 
+        app.put('/api/recipes/:id', verifyToken, async (req, res) => {
+            // ... validation and ownership checks remain identical ...
+
+            const {
+                recipeName, recipeImage, category, cuisineType,
+                difficultyLevel, preparationTime, ingredients, instructions, description
+            } = req.body;
+
+            const updatedDocument = {
+                $set: {
+                    recipeName: recipeName || existingRecipe.recipeName,
+                    recipeImage: recipeImage || existingRecipe.recipeImage,
+                    category: category || existingRecipe.category,
+                    cuisineType: cuisineType || existingRecipe.cuisineType,
+                    difficultyLevel: difficultyLevel || existingRecipe.difficultyLevel,
+                    preparationTime: preparationTime || existingRecipe.preparationTime,
+                    ingredients: ingredients || existingRecipe.ingredients,
+                    instructions: instructions || existingRecipe.instructions,
+                    description: description || existingRecipe.description,
+                    status: "pending",
+                    updatedAt: new Date().toISOString()
+                }
+            };
+
+            await recipesCollection.updateOne({ _id: new ObjectId(recipeId) }, updatedDocument);
+            res.status(200).json({ message: "Recipe updated completely!" });
+        });
+
         // Clean and Hybrid: Accessible by everyone, but tracks state for logged-in accounts
         app.get('/api/recipes/:id', optionalVerifyToken, async (req, res) => {
             try {
