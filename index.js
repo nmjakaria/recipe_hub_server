@@ -26,7 +26,7 @@ const client = new MongoClient(uri, {
 
 const JWKS = createRemoteJWKSet(new URL(`${process.env.CLIENT_URL}/api/auth/jwks`));
 
-// ✅ UPDATED: Added user assignment and fixed response key typos
+//  UPDATED: Added user assignment and fixed response key typos
 const verifyToken = async (req, res, next) => {
     const authHeader = req?.headers.authorization;
     if (!authHeader) {
@@ -122,7 +122,49 @@ async function startServer() {
             res.send(result);
         });
 
-        // ✅ Clean and Hybrid: Accessible by everyone, but tracks state for logged-in accounts
+        // Secure Private Route: Fetch recipes created exclusively by the logged-in user
+        app.get('/api/user/my-recipes', verifyToken, async (req, res) => {
+            try {
+                // Extracted directly from your verifyToken middleware payload
+                const userId = req.user.id;
+                const userRecipes = await recipesCollection.find({ authorId: userId }).toArray();
+
+                res.status(200).json(userRecipes);
+            } catch (error) {
+                console.error("Error pulling account recipe matrix:", error);
+                res.status(500).json({ message: "Internal server error compilation failed." });
+            }
+        });
+
+        // Scoped path to prevent route duplication collisions
+        app.get('/api/user/my-recipes/:id', verifyToken, async (req, res) => {
+            try {
+                const recipeId = req.params.id;
+                const userId = req.user.id;
+
+                if (!ObjectId.isValid(recipeId)) {
+                    return res.status(400).json({ message: "Invalid recipe ID format." });
+                }
+
+                const recipe = await recipesCollection.findOne({ _id: new ObjectId(recipeId) });
+
+                if (!recipe) {
+                    return res.status(404).json({ message: "Recipe not found." });
+                }
+
+                // Strict Ownership enforcement for management access
+                if (recipe.authorId !== userId) {
+                    return res.status(403).json({ message: "Unauthorized: You do not own this recipe." });
+                }
+
+                res.status(200).json(recipe);
+            } catch (error) {
+                console.error("Error fetching recipe for edit workspace:", error);
+                res.status(500).json({ message: "Internal server error." });
+            }
+        });
+
+        // Clean and Hybrid: Accessible by everyone, but tracks state for logged-in accounts
         app.get('/api/recipes/:id', optionalVerifyToken, async (req, res) => {
             try {
                 const id = req.params.id;
