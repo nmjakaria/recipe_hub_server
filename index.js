@@ -79,6 +79,23 @@ const optionalVerifyToken = async (req, res, next) => {
     next();
 };
 
+// Middleware to restrict routes to specific roles
+const authorizeRoles = (...allowedRoles) => {
+    return (req, res, next) => {
+        // 1. Ensure the user is authenticated first
+        if (!req.user) {
+            return res.status(401).json({ message: "Unauthorized: Missing authentication context" });
+        }
+
+        // 2. Check if the user's role is permitted
+        if (!allowedRoles.includes(req.user.role)) {
+            return res.status(403).json({ message: `Forbidden: Access denied for role '${req.user.role}'` });
+        }
+
+        next();
+    };
+};
+
 // Connect to MongoDB ONCE when the server starts
 async function startServer() {
     try {
@@ -141,8 +158,6 @@ async function startServer() {
                 res.status(500).send({ message: "Internal server error fetching recipe details" });
             }
         });
-
-        // --- PROTECTED ROUTES (Using verifyToken middleware) ---
 
         // Anyone creating a recipe must have a valid account session
         app.post('/api/recipes', verifyToken, async (req, res) => {
@@ -220,6 +235,81 @@ async function startServer() {
                 res.status(500).send({ message: "Internal server error tracking engagement states" });
             }
         });
+
+        // ==========================================
+        // 2. TOGGLE FAVORITE API ROUTE
+        // ==========================================
+        app.post('/api/recipes/:id/favorite', verifyToken, async (req, res) => {
+            try {
+                const recipeId = req.params.id;
+                const userId = req.user.id;
+                const userEmail = req.user.email;
+                const { recipeName } = req.body; // Sent from frontend data context
+
+                if (!ObjectId.isValid(recipeId)) {
+                    return res.status(400).json({ message: "Invalid Recipe ID format" });
+                }
+
+                const recipeObjectId = new ObjectId(recipeId);
+                const favoriteQuery = { recipeId: recipeObjectId, userId: userId };
+
+                const existingFavorite = await favoritesCollection.findOne(favoriteQuery);
+
+                if (existingFavorite) {
+                    // Remove from favorites if it exists
+                    await favoritesCollection.deleteOne(favoriteQuery);
+                    return res.json({ favorited: false, message: "Removed from favorites collection" });
+                } else {
+                    // Add to favorites if it doesn't exist
+                    const newFavoriteDoc = {
+                        userId,
+                        userEmail,
+                        recipeId: recipeObjectId,
+                        recipeName: recipeName || "Unnamed Recipe",
+                        addedAt: new Date()
+                    };
+                    await favoritesCollection.insertOne(newFavoriteDoc);
+                    return res.json({ favorited: true, message: "Added to favorites collection successfully" });
+                }
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: "Internal server error handling collection updates" });
+            }
+        });
+
+        // ==========================================
+        // 3. SUBMIT CONTENT REPORT API ROUTE
+        // ==========================================
+        app.post('/api/recipes/:id/report', verifyToken, async (req, res) => {
+            try {
+                const recipeId = req.params.id;
+                const reporterEmail = req.user.email;
+                const { reason } = req.body;
+
+                if (!reason || !reason.trim()) {
+                    return res.status(400).json({ message: "A descriptive violation reason statement is required" });
+                }
+                if (!ObjectId.isValid(recipeId)) {
+                    return res.status(400).json({ message: "Invalid Recipe ID targeting metrics" });
+                }
+
+                const reportDocument = {
+                    recipeId: new ObjectId(recipeId),
+                    reporterEmail,
+                    reason: reason.trim(),
+                    status: "pending",
+                    createdAt: new Date()
+                };
+
+                await reportsCollection.insertOne(reportDocument);
+                res.status(201).json({ success: true, message: "Report submitted successfully for evaluation" });
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: "Internal server error handling compliance filings" });
+            }
+        });
+
+
 
         // Check database connectivity
         await client.db("admin").command({ ping: 1 });
