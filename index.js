@@ -34,10 +34,10 @@ async function startServer() {
         // Recipes related api routes
         app.get('/api/recipes', async (req, res) => {
             const query = {};
-            if(req.query.authorId){
+            if (req.query.authorId) {
                 query.authorId = req.query.authorId
             }
-            if(req.query.status){
+            if (req.query.status) {
                 query.status = req.query.status
             }
             const cursor = recipesCollection.find(query);
@@ -45,7 +45,16 @@ async function startServer() {
             res.send(resut);
         })
 
-        
+        app.get('/api/recipes/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = {
+                _id: new ObjectId(id),
+            }
+            const result = await recipesCollection.findOne(query);
+            res.send(result);
+        })
+
+
         app.post('/api/recipes', async (req, res) => {
             const recipe = req.body;
             try {
