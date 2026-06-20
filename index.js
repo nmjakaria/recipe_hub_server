@@ -28,9 +28,36 @@ async function startServer() {
     try {
         await client.connect();
 
-        const database = client.db("recipeHub_db");
+        const database = client.db("recipehub_db");
+        const recipesCollection = database.collection("recipes");
+
+        // Recipes related api routes
+        app.get('/api/recipes', async (req, res) => {
+            const query = {};
+            if(req.query.authorId){
+                query.authorId = req.query.authorId
+            }
+            if(req.query.status){
+                query.status = req.query.status
+            }
+            const cursor = recipesCollection.find(query);
+            const resut = await cursor.toArray();
+            res.send(resut);
+        })
+
         
-        
+        app.post('/api/recipes', async (req, res) => {
+            const recipe = req.body;
+            try {
+                const result = await recipesCollection.insertOne(recipe);
+                res.status(201).json({ message: 'Recipe added successfully', id: result.insertedId });
+            } catch (error) {
+                console.error("Error adding recipe:", error);
+                res.status(500).json({ message: 'Error adding recipe' });
+            }
+        })
+
+
 
         await client.db("admin").command({ ping: 1 });
         console.log("Connected to MongoDB successfully!");
