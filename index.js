@@ -17,6 +17,8 @@ const PORT = process.env.SERVER_PORT || 5000;
 const uri = process.env.MONGO_DB_URI;
 
 const client = new MongoClient(uri, {
+    maxPoolSize: 10,
+    minPoolSize: 2,
     serverApi: {
         version: ServerApiVersion.v1,
         strict: true,
@@ -164,32 +166,53 @@ async function startServer() {
             }
         });
 
-        app.put('/api/recipes/:id', verifyToken, async (req, res) => {
-            // ... validation and ownership checks remain identical ...
+        // Look for your PUT or PATCH route around line 170-200
+        app.put('/recipes/:id', verifyToken, async (req, res) => {
+            try {
+                const recipeId = req.params.id;
+                const body = req.body;
 
-            const {
-                recipeName, recipeImage, category, cuisineType,
-                difficultyLevel, preparationTime, ingredients, instructions, description
-            } = req.body;
-
-            const updatedDocument = {
-                $set: {
-                    recipeName: recipeName || existingRecipe.recipeName,
-                    recipeImage: recipeImage || existingRecipe.recipeImage,
-                    category: category || existingRecipe.category,
-                    cuisineType: cuisineType || existingRecipe.cuisineType,
-                    difficultyLevel: difficultyLevel || existingRecipe.difficultyLevel,
-                    preparationTime: preparationTime || existingRecipe.preparationTime,
-                    ingredients: ingredients || existingRecipe.ingredients,
-                    instructions: instructions || existingRecipe.instructions,
-                    description: description || existingRecipe.description,
-                    status: "pending",
-                    updatedAt: new Date().toISOString()
+                // ID-র ফরম্যাট সঠিক আছে কিনা তা চেক করে নেওয়া নিরাপদ
+                if (!ObjectId.isValid(recipeId)) {
+                    return res.status(400).json({ error: "Invalid Recipe ID format." });
                 }
-            };
 
-            await recipesCollection.updateOne({ _id: new ObjectId(recipeId) }, updatedDocument);
-            res.status(200).json({ message: "Recipe updated completely!" });
+                const existingRecipe = await recipesCollection.findOne({ _id: new ObjectId(recipeId) });
+
+                if (!existingRecipe) {
+                    return res.status(404).json({ error: "Recipe not found in records." });
+                }
+
+                // ওনারশিপ ভেরিফিকেশন
+                if (existingRecipe.userEmail !== req.user.email) {
+                    return res.status(403).json({ error: "Access Denied: You do not own this recipe blueprint." });
+                }
+
+                // ডেটা আপডেট
+                const result = await recipesCollection.findOneAndUpdate(
+                    { _id: new ObjectId(recipeId) },
+                    {
+                        $set: {
+                            recipeName: body.recipeName,
+                            recipeImage: body.recipeImage,
+                            category: body.category,
+                            cuisineType: body.cuisineType,
+                            difficultyLevel: body.difficultyLevel,
+                            preparationTime: Number(body.preparationTime),
+                            description: body.description,
+                            ingredients: body.ingredients,
+                            instructions: body.instructions
+                        }
+                    },
+                    { returnDocument: 'after' } // এটি সরাসরি আপডেটেড ডকুমেন্টটি রিটার্ন করবে
+                );
+
+                return res.status(200).json(result);
+
+            } catch (error) {
+                console.error("❌ Update Recipe Error:", error.message);
+                return res.status(500).json({ error: "Internal server error during update." });
+            }
         });
 
         // Clean and Hybrid: Accessible by everyone, but tracks state for logged-in accounts
@@ -381,7 +404,7 @@ async function startServer() {
 
 
 
-        // Check database connectivity
+        // // Check database connectivity
         await client.db("admin").command({ ping: 1 });
         console.log("Connected to MongoDB successfully!");
 
