@@ -167,28 +167,14 @@ async function startServer() {
         });
 
         // Look for your PUT or PATCH route around line 170-200
-        app.put('/recipes/:id', verifyToken, async (req, res) => {
+        app.patch('/api/recipes/:id', verifyToken, async (req, res) => {
             try {
                 const recipeId = req.params.id;
                 const body = req.body;
 
-                // ID-র ফরম্যাট সঠিক আছে কিনা তা চেক করে নেওয়া নিরাপদ
                 if (!ObjectId.isValid(recipeId)) {
                     return res.status(400).json({ error: "Invalid Recipe ID format." });
                 }
-
-                const existingRecipe = await recipesCollection.findOne({ _id: new ObjectId(recipeId) });
-
-                if (!existingRecipe) {
-                    return res.status(404).json({ error: "Recipe not found in records." });
-                }
-
-                // ওনারশিপ ভেরিফিকেশন
-                if (existingRecipe.userEmail !== req.user.email) {
-                    return res.status(403).json({ error: "Access Denied: You do not own this recipe blueprint." });
-                }
-
-                // ডেটা আপডেট
                 const result = await recipesCollection.findOneAndUpdate(
                     { _id: new ObjectId(recipeId) },
                     {
@@ -198,16 +184,21 @@ async function startServer() {
                             category: body.category,
                             cuisineType: body.cuisineType,
                             difficultyLevel: body.difficultyLevel,
-                            preparationTime: Number(body.preparationTime),
+                            preparationTime: Number(body.preparationTime) || 0,
                             description: body.description,
                             ingredients: body.ingredients,
                             instructions: body.instructions
                         }
                     },
-                    { returnDocument: 'after' } // এটি সরাসরি আপডেটেড ডকুমেন্টটি রিটার্ন করবে
+                    { returnDocument: 'after' }
                 );
 
-                return res.status(200).json(result);
+                const updatedDoc = result?.value || result;
+                if (!updatedDoc) {
+                    return res.status(400).json({ error: "Failed to update database record." });
+                }
+
+                return res.status(200).json({ success: true, data: updatedDoc });
 
             } catch (error) {
                 console.error("❌ Update Recipe Error:", error.message);
@@ -402,6 +393,57 @@ async function startServer() {
             }
         });
 
+        // app.delete('/api/recipes/:id', verifyToken, async (req, res) => {
+        //     try {
+        //         const recipeId = req.params.id;
+
+        //         if (!ObjectId.isValid(recipeId)) {
+        //             return res.status(400).json({ error: "Invalid Recipe ID format." });
+        //         }
+
+        //         const existingRecipe = await recipesCollection.findOne({ _id: new ObjectId(recipeId) });
+
+        //         if (!existingRecipe) {
+        //             return res.status(404).json({ error: "Recipe not found in records." });
+        //         }
+
+        //         if (existingRecipe.userEmail !== req.user?.email) {
+        //             return res.status(403).json({ error: "Access Denied: You do not own this recipe blueprint." });
+        //         }
+        //         const result = await recipesCollection.deleteOne({ _id: new ObjectId(recipeId) });
+
+        //         if (result.deletedCount === 0) {
+        //             return res.status(400).json({ error: "Failed to delete the recipe record." });
+        //         }
+
+        //         return res.status(200).json({ success: true, message: "Recipe deleted successfully from the database." });
+
+        //     } catch (error) {
+        //         console.error("❌ Delete Recipe Error:", error.message);
+        //         return res.status(500).json({ error: "Internal server error during deletion." });
+        //     }
+        // });
+        app.delete('/api/recipes/:id', verifyToken, async (req, res) => {
+            try {
+                const recipeId = req.params.id;
+
+                if (!ObjectId.isValid(recipeId)) {
+                    return res.status(400).json({ error: "Invalid Recipe ID format." });
+                }
+
+                const result = await recipesCollection.deleteOne({ _id: new ObjectId(recipeId) });
+
+                if (result.deletedCount === 0) {
+                    return res.status(404).json({ error: "Recipe not found or already deleted." });
+                }
+
+                return res.status(200).json({ success: true, message: "Recipe deleted successfully from the database." });
+
+            } catch (error) {
+                console.error("❌ Delete Recipe Error:", error.message);
+                return res.status(500).json({ error: "Internal server error during deletion." });
+            }
+        });
 
 
         // // Check database connectivity
