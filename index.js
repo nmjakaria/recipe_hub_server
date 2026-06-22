@@ -112,18 +112,44 @@ async function startServer() {
         // --- PUBLIC ROUTES ---
 
         app.get('/api/recipes', async (req, res) => {
-            const query = {};
-            if (req.query.authorId) {
-                query.authorId = req.query.authorId;
-            }
-            if (req.query.status) {
-                query.status = req.query.status;
-            }
-            const cursor = recipesCollection.find(query);
-            const result = await cursor.toArray();
-            res.send(result);
-        });
+            try {
+                const query = {};
 
+                // Existing filters
+                if (req.query.authorId) query.authorId = req.query.authorId;
+                if (req.query.status) query.status = req.query.status;
+
+                // New Database filters
+                if (req.query.category) query.category = req.query.category;
+                if (req.query.cuisineType) query.cuisineType = req.query.cuisineType;
+
+                // Pagination setup
+                const page = parseInt(req.query.page) || 1;
+                const limit = parseInt(req.query.limit) || 8; // Change default size if desired
+                const skip = (page - 1) * limit;
+
+                // Fetch paginated data and total count concurrently
+                const [recipes, totalCount] = await Promise.all([
+                    recipesCollection.find(query).skip(skip).limit(limit).toArray(),
+                    recipesCollection.countDocuments(query)
+                ]);
+
+                const totalPages = Math.ceil(totalCount / limit);
+
+                res.send({
+                    recipes,
+                    pagination: {
+                        totalCount,
+                        totalPages,
+                        currentPage: page,
+                        limit
+                    }
+                });
+            } catch (error) {
+                console.error("Error fetching recipes:", error);
+                res.status(500).send({ error: "Internal server error occurred." });
+            }
+        });
         // Secure Private Route: Fetch recipes created exclusively by the logged-in user
         app.get('/api/user/my-recipes', verifyToken, async (req, res) => {
             try {
