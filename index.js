@@ -108,8 +108,36 @@ async function startServer() {
         const recipeLikesCollection = db.collection("recipeLikes");
         const favoritesCollection = db.collection("recipeFavorites");
         const reportsCollection = db.collection("reports");
+        const userCollection = db.collection("user");
 
         // --- PUBLIC ROUTES ---
+
+        //get user
+        // 1. Get All Users Endpoint (Restricted to Admin)
+        app.get('/api/users', verifyToken, authorizeRoles('admin'), async (req, res) => {
+            try {
+                // Fetch all users to calculate total count and premium distributions on client side
+                const users = await userCollection.find({}).toArray();
+                res.status(200).json(users);
+            } catch (error) {
+                console.error("Error pulling platform users matrix:", error);
+                res.status(500).json({ message: "Internal server error compilation failed." });
+            }
+        });
+
+        // 2. Get All Reports Endpoint (Restricted to Admin)
+        app.get('/api/reports', verifyToken, authorizeRoles('admin'), async (req, res) => {
+            try {
+                // Fetch all community report flags for dashboard verification lengths
+                const reports = await reportsCollection.find({}).toArray();
+                res.status(200).json(reports);
+            } catch (error) {
+                console.error("Error pulling system reports matrix:", error);
+                res.status(500).json({ message: "Internal server error compilation failed." });
+            }
+        });
+
+        
 
         app.get('/api/recipes', async (req, res) => {
             try {
