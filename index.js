@@ -164,7 +164,7 @@ async function startServer() {
             }
         });
 
-        // Scoped path to prevent route duplication collisions
+        // Scoped path to prevent route duplication collisions. it is for edit recipe.
         app.get('/api/user/my-recipes/:id', verifyToken, async (req, res) => {
             try {
                 const recipeId = req.params.id;
@@ -349,12 +349,15 @@ async function startServer() {
         // ==========================================
         // 2. TOGGLE FAVORITE API ROUTE
         // ==========================================
+        // backend index.js
         app.post('/api/recipes/:id/favorite', verifyToken, async (req, res) => {
             try {
                 const recipeId = req.params.id;
                 const userId = req.user.id;
                 const userEmail = req.user.email;
-                const { recipeName } = req.body; // Sent from frontend data context
+
+                // FIX: Extract the properties from inside the nested object node
+                const { recipeName, recipeImage, category, cuisineType } = req.body.favoriteRecipeData || {};
 
                 if (!ObjectId.isValid(recipeId)) {
                     return res.status(400).json({ message: "Invalid Recipe ID format" });
@@ -362,28 +365,28 @@ async function startServer() {
 
                 const recipeObjectId = new ObjectId(recipeId);
                 const favoriteQuery = { recipeId: recipeObjectId, userId: userId };
-
                 const existingFavorite = await favoritesCollection.findOne(favoriteQuery);
 
                 if (existingFavorite) {
-                    // Remove from favorites if it exists
                     await favoritesCollection.deleteOne(favoriteQuery);
-                    return res.json({ favorited: false, message: "Removed from favorites collection" });
+                    return res.json({ favorited: false, message: "Removed from favorites" });
                 } else {
-                    // Add to favorites if it doesn't exist
                     const newFavoriteDoc = {
                         userId,
                         userEmail,
                         recipeId: recipeObjectId,
-                        recipeName: recipeName || "Unnamed Recipe",
-                        addedAt: new Date()
+                        recipeName,     // Now successfully populated!
+                        recipeImage,    // Now successfully populated!
+                        category,       // Now successfully populated!
+                        cuisineType,    // Now successfully populated!
+                        createdAt: new Date()
                     };
                     await favoritesCollection.insertOne(newFavoriteDoc);
-                    return res.json({ favorited: true, message: "Added to favorites collection successfully" });
+                    return res.json({ favorited: true, message: "Added to favorites successfully" });
                 }
             } catch (error) {
                 console.error(error);
-                res.status(500).json({ message: "Internal server error handling collection updates" });
+                res.status(500).json({ message: "Internal server error" });
             }
         });
 
@@ -449,7 +452,7 @@ async function startServer() {
         //         return res.status(500).json({ error: "Internal server error during deletion." });
         //     }
         // });
-        app.delete('/api/recipes/:id', verifyToken, async (req, res) => {
+        app.delete('/api/recipes/:id', verifyToken, authorizeRoles("user"), async (req, res) => {
             try {
                 const recipeId = req.params.id;
 
@@ -468,6 +471,52 @@ async function startServer() {
             } catch (error) {
                 console.error("❌ Delete Recipe Error:", error.message);
                 return res.status(500).json({ error: "Internal server error during deletion." });
+            }
+        });
+
+        //get favorite recipe accourding to user
+        app.get('/api/user/my-favorite', verifyToken, async (req, res) => {
+            try {
+                // Extracted directly from your verifyToken middleware payload
+                const userId = req.user.id;
+                const userRecipes = await favoritesCollection.find({ userId }).toArray();
+
+                res.status(200).json(userRecipes);
+            } catch (error) {
+                console.error("Error pulling account recipe matrix:", error);
+                res.status(500).json({ message: "Internal server error compilation failed." });
+            }
+        });
+        // delete fovirate for user dashboard.
+        // --- Action: Remove Recipe from Favorites ---
+        app.delete('/api/user/my-favorite/:id', verifyToken, async (req, res) => {
+            try {
+                const favoriteId = req.params.id;
+                const userId = req.user.id;
+
+                // 1. Validate the incoming ID structure
+                if (!ObjectId.isValid(favoriteId)) {
+                    console.error(`Rejected invalid ObjectId payload: "${favoriteId}"`);
+                    return res.status(400).json({
+                        success: false,
+                        message: `Malformatted ID context received: "${favoriteId}". Must be a 24-character hex string.`
+                    });
+                }
+
+                // 2. Perform safe deletion
+                const result = await favoritesCollection.deleteOne({
+                    _id: new ObjectId(favoriteId),
+                    userId: userId
+                });
+
+                if (result.deletedCount === 1) {
+                    return res.status(200).json({ success: true, message: "Removed from favorites successfully." });
+                } else {
+                    return res.status(404).json({ success: false, message: "Favorite record not found." });
+                }
+            } catch (error) {
+                console.error("Error deleting favorite item:", error);
+                return res.status(500).json({ success: false, message: "Internal server error occurred." });
             }
         });
 
