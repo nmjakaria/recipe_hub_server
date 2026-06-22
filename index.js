@@ -137,8 +137,37 @@ async function startServer() {
             }
         });
 
-        
+        // Update User Block Status Endpoint
+        app.patch('/api/users/:id/block', verifyToken, authorizeRoles('admin'), async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { isBlocked } = req.body; // Expects a boolean: true or false
 
+                const result = await userCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    {
+                        $set: {
+                            isBlocked: Boolean(isBlocked),
+                            updatedAt: new Date()
+                        }
+                    }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ message: "User profile not found." });
+                }
+
+                res.status(200).json({
+                    success: true,
+                    message: `User successfully ${isBlocked ? 'blocked' : 'unblocked'}.`
+                });
+            } catch (error) {
+                console.error("Error updating user access matrix:", error);
+                res.status(500).json({ message: "Internal server error blocking execution." });
+            }
+        });
+
+        //get all recipes for everyone
         app.get('/api/recipes', async (req, res) => {
             try {
                 const query = {};
