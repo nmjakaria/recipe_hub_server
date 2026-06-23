@@ -325,6 +325,27 @@ async function startServer() {
                 res.status(500).send({ message: "Internal server error fetching recipe details" });
             }
         });
+        // Admin recipe fetch endpoint
+        app.get('/api/admin/recipes/:id', verifyToken, authorizeRoles('admin'), async (req, res) => {
+            try {
+                const recipeId = req.params.id;
+
+                if (!ObjectId.isValid(recipeId)) {
+                    return res.status(400).json({ message: "Invalid recipe ID format." });
+                }
+
+                const recipe = await recipesCollection.findOne({ _id: new ObjectId(recipeId) });
+
+                if (!recipe) {
+                    return res.status(404).json({ message: "Recipe not found." });
+                }
+
+                res.status(200).json(recipe);
+            } catch (error) {
+                console.error("Admin Error fetching recipe:", error);
+                res.status(500).json({ message: "Internal server error." });
+            }
+        });
 
         // Anyone creating a recipe must have a valid account session
         app.post('/api/recipes', verifyToken, async (req, res) => {
@@ -574,6 +595,63 @@ async function startServer() {
             } catch (error) {
                 console.error("Error deleting favorite item:", error);
                 return res.status(500).json({ success: false, message: "Internal server error occurred." });
+            }
+        });
+
+        // PATCH Route: Update specific administrative parameters of a recipe
+        app.patch('/api/admin/recipes/:id', verifyToken, authorizeRoles('admin'), async (req, res) => {
+            try {
+                const recipeId = req.params.id;
+                const { isFeatured, status } = req.body;
+
+                // 1. Validate ObjectId structure
+                if (!ObjectId.isValid(recipeId)) {
+                    return res.status(400).json({ success: false, message: "Invalid recipe ID format structure." });
+                }
+
+                // 2. Build dynamic payload allocation block to prevent arbitrary overwrites
+                const updateData = {};
+
+                if (isFeatured !== undefined) {
+                    updateData.isFeatured = Boolean(isFeatured);
+                }
+
+                if (status !== undefined) {
+                    // Validation guard rail to only accept system defined status constraints
+                    if (status === 'pending' || status === 'allowed') {
+                        updateData.status = status;
+                    } else {
+                        return res.status(400).json({ success: false, message: "Invalid status selection type." });
+                    }
+                }
+
+                // 3. Fallback protection: check if there's actually a payload body array
+                if (Object.keys(updateData).length === 0) {
+                    return res.status(400).json({ success: false, message: "No modifiable schema parameters specified in the request body." });
+                }
+
+                // Timestamp injection tracker updates
+                updateData.updatedAt = new Date().toISOString();
+
+                // 4. Update the record within MongoDB database collections
+                const result = await recipesCollection.updateOne(
+                    { _id: new ObjectId(recipeId) },
+                    { $set: updateData }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ success: false, message: "Recipe document matrix could not be resolved." });
+                }
+
+                res.status(200).json({
+                    success: true,
+                    message: "Recipe parameters altered successfully inside database schema block.",
+                    updatedFields: updateData
+                });
+
+            } catch (error) {
+                console.error("Administrative database update operational breakdown:", error);
+                res.status(500).json({ success: false, message: "Internal server error execution breakdown." });
             }
         });
 
