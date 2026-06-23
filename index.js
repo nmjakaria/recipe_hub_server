@@ -655,6 +655,78 @@ async function startServer() {
             }
         });
 
+        const { ObjectId } = require('mongodb'); // ensure ObjectId is imported
+
+        // PATCH Route: Update report state matrix (e.g., Dismissing a flag)
+        app.patch('/api/reports/:id', verifyToken, authorizeRoles('admin'), async (req, res) => {
+            try {
+                const reportId = req.params.id;
+                const { status } = req.body;
+
+                // Validate target parameter structure
+                if (!ObjectId.isValid(reportId)) {
+                    return res.status(400).json({ success: false, message: "Invalid report ID format configuration." });
+                }
+
+                // Limit input array manipulation to permitted status fields
+                if (!status || !['pending', 'dismissed'].includes(status)) {
+                    return res.status(400).json({ success: false, message: "Invalid status state transition requested." });
+                }
+
+                // Execute structural modification update against MongoDB
+                const result = await reportsCollection.updateOne(
+                    { _id: new ObjectId(reportId) },
+                    {
+                        $set: {
+                            status: status,
+                            updatedAt: new Date()
+                        }
+                    }
+                );
+
+                if (result.matchedCount === 0) {
+                    return res.status(404).json({ success: false, message: "Target validation report ticket not found." });
+                }
+
+                res.status(200).json({
+                    success: true,
+                    message: `Report status successfully adjusted to ${status}.`
+                });
+
+            } catch (error) {
+                console.error("Error patching moderation records:", error);
+                res.status(500).json({ success: false, message: "Internal server error state alteration failed." });
+            }
+        });
+
+        // DELETE Route: Erase a report ticket entry completely
+        app.delete('/api/reports/:id', verifyToken, authorizeRoles('admin'), async (req, res) => {
+            try {
+                const reportId = req.params.id;
+
+                // Validate target parameter structure
+                if (!ObjectId.isValid(reportId)) {
+                    return res.status(400).json({ success: false, message: "Invalid report ID format configuration." });
+                }
+
+                // Perform final destruction query inside data array collection blocks
+                const result = await reportsCollection.deleteOne({ _id: new ObjectId(reportId) });
+
+                if (result.deletedCount === 0) {
+                    return res.status(404).json({ success: false, message: "Target report timeline instance not resolved." });
+                }
+
+                res.status(200).json({
+                    success: true,
+                    message: "Report log permanently dropped from global infrastructure tracking."
+                });
+
+            } catch (error) {
+                console.error("Error clearing moderation index entry:", error);
+                res.status(500).json({ success: false, message: "Internal server error record destruction failed." });
+            }
+        });
+
 
         // // Check database connectivity
         await client.db("admin").command({ ping: 1 });
