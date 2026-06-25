@@ -109,6 +109,8 @@ async function startServer() {
         const favoritesCollection = db.collection("recipeFavorites");
         const reportsCollection = db.collection("reports");
         const userCollection = db.collection("user");
+        const recipePurchasesCollection = db.collection("recipe_purchases");
+        
 
         // --- PUBLIC ROUTES ---
 
@@ -727,6 +729,40 @@ async function startServer() {
             }
         });
 
+
+        app.post('/api/recipe-purchases', async (req, res) => {
+            try {
+                const { userId, userEmail, amount, recipeId, transactionId, paymentStatus, paidAt } = req.body;
+
+                if (!ObjectId.isValid(recipeId)) {
+                    return res.status(400).send({ message: "Invalid Recipe ID format" });
+                }
+
+                const recipeObjectId = new ObjectId(recipeId);
+                const purchaseData = {
+                    recipeId: recipeObjectId,
+                    userId: userId, // যদি আপনার ইউজার আইডি মঙ্গোডিবি ওয়ান হয় তবে new ObjectId(userId) দিতে পারেন
+                    userEmail: userEmail,
+                    amount: parseFloat(amount),
+                    transactionId: transactionId,
+                    paymentStatus: paymentStatus,
+                    paidAt: paidAt ? new Date(paidAt) : new Date()
+                };
+
+                // ৩. আপনার আলাদা কালেকশনে ডাটা ইনসার্ট করা
+                const result = await recipePurchasesCollection.insertOne(purchaseData);
+
+                return res.status(201).send({
+                    success: true,
+                    insertedId: result.insertedId,
+                    message: "Recipe purchase recorded successfully"
+                });
+
+            } catch (error) {
+                console.error("Purchase system execution exception:", error);
+                res.status(500).send({ message: "Internal server error tracking purchase states" });
+            }
+        });
 
         // // Check database connectivity
         await client.db("admin").command({ ping: 1 });
