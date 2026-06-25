@@ -110,7 +110,7 @@ async function startServer() {
         const reportsCollection = db.collection("reports");
         const userCollection = db.collection("user");
         const recipePurchasesCollection = db.collection("recipe_purchases");
-        
+        const subscriptionCollection = db.collection("subscriptions")
 
         // --- PUBLIC ROUTES ---
 
@@ -729,7 +729,7 @@ async function startServer() {
             }
         });
 
-
+        // Store recipe purchases info
         app.post('/api/recipe-purchases', async (req, res) => {
             try {
                 const { userId, userEmail, amount, recipeId, transactionId, paymentStatus, paidAt } = req.body;
@@ -741,7 +741,7 @@ async function startServer() {
                 const recipeObjectId = new ObjectId(recipeId);
                 const purchaseData = {
                     recipeId: recipeObjectId,
-                    userId: userId, // যদি আপনার ইউজার আইডি মঙ্গোডিবি ওয়ান হয় তবে new ObjectId(userId) দিতে পারেন
+                    userId: userId,
                     userEmail: userEmail,
                     amount: parseFloat(amount),
                     transactionId: transactionId,
@@ -749,7 +749,6 @@ async function startServer() {
                     paidAt: paidAt ? new Date(paidAt) : new Date()
                 };
 
-                // ৩. আপনার আলাদা কালেকশনে ডাটা ইনসার্ট করা
                 const result = await recipePurchasesCollection.insertOne(purchaseData);
 
                 return res.status(201).send({
@@ -761,6 +760,68 @@ async function startServer() {
             } catch (error) {
                 console.error("Purchase system execution exception:", error);
                 res.status(500).send({ message: "Internal server error tracking purchase states" });
+            }
+        });
+
+
+        app.post('/api/subscriptions', async (req, res) => {
+            try {
+                const { userId, userEmail, stripeSubscriptionId, stripePriceId, status, amount, expiresAt } = req.body;
+
+                // 1. Validate the User ID format matching your pattern
+                if (!ObjectId.isValid(userId)) {
+                    return res.status(400).send({ message: "Invalid User ID format" });
+                }
+
+                const userObjectId = new ObjectId(userId);
+
+                // 2. Prevent duplicate database writes if the user refreshes the Next.js success page
+                const existingSubscription = await subscriptionCollection.findOne({
+                    stripeSubscriptionId: stripeSubscriptionId
+                });
+
+                if (existingSubscription) {
+                    return res.status(200).send({
+                        success: true,
+                        message: "Subscription already active and logged in database"
+                    });
+                }
+
+                // 3. Prepare subscription collection payload
+                const subscriptionData = {
+                    userId: userObjectId,
+                    userEmail: userEmail,
+                    stripeSubscriptionId: stripeSubscriptionId,
+                    stripePriceId: stripePriceId,
+                    status: status,
+                    amount: parseFloat(amount),
+                    createdAt: new Date(),
+                    expiresAt: expiresAt ? new Date(expiresAt) : null
+                };
+
+                // 4. Insert into subscriptions collection
+                const subResult = await subscriptionCollection.insertOne(subscriptionData);
+
+                // 5. Update the user collection plan to "premium"
+                await userCollection.updateOne(
+                    { _id: userObjectId },
+                    {
+                        $set: {
+                            plan: "premium",
+                            updatedAt: new Date()
+                        }
+                    }
+                );
+
+                return res.status(201).send({
+                    success: true,
+                    insertedId: subResult.insertedId,
+                    message: "Subscription recorded and user profile upgraded successfully"
+                });
+
+            } catch (error) {
+                console.error("Subscription system execution exception:", error);
+                res.status(500).send({ message: "Internal server error tracking subscription states" });
             }
         });
 
