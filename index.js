@@ -951,8 +951,8 @@ async function startServer() {
         });
 
         // // Check database connectivity
-        await client.db("admin").command({ ping: 1 });
-        console.log("Connected to MongoDB successfully!");
+        // await client.db("admin").command({ ping: 1 });
+        // console.log("Connected to MongoDB successfully!");
 
         // Start listening only AFTER database connection succeeds
         app.listen(PORT, () => {
