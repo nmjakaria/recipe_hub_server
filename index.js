@@ -763,7 +763,7 @@ async function startServer() {
             }
         });
 
-
+        // store subscriptions
         app.post('/api/subscriptions', async (req, res) => {
             try {
                 const { userId, userEmail, stripeSubscriptionId, stripePriceId, status, amount, expiresAt } = req.body;
@@ -822,6 +822,70 @@ async function startServer() {
             } catch (error) {
                 console.error("Subscription system execution exception:", error);
                 res.status(500).send({ message: "Internal server error tracking subscription states" });
+            }
+        });
+
+        //get all transactions
+        app.get('/api/admin/transactions', verifyToken, authorizeRoles('admin'), async (req, res) => {
+            try {
+                // 1. Fetch raw transaction documents from both streams concurrently
+                const [purchases, subscriptions] = await Promise.all([
+                    recipePurchasesCollection.find({}).toArray(),
+                    subscriptionCollection.find({}).toArray()
+                ]);
+
+                // 2. Format Single Recipe Purchases to match a uniform matrix shape
+                const normalizedPurchases = purchases.map(p => ({
+                    id: p._id.toString(),
+                    userId: p.userId ? p.userId.toString() : null,
+                    userEmail: p.userEmail,
+                    amount: parseFloat(p.amount || 0),
+                    date: p.paidAt ? p.paidAt : null,
+                    status: p.paymentStatus || 'unknown',
+                    referenceId: p.transactionId,
+                    type: 'Single Purchase'
+                }));
+
+                // 3. Format Subscriptions to match the same uniform matrix shape
+                const normalizedSubs = subscriptions.map(s => ({
+                    id: s._id.toString(),
+                    userId: s.userId ? s.userId.toString() : null,
+                    userEmail: s.userEmail,
+                    amount: parseFloat(s.amount || 0),
+                    date: s.createdAt ? s.createdAt : null,
+                    status: s.status || 'unknown',
+                    referenceId: s.stripeSubscriptionId,
+                    type: 'Subscription Tier'
+                }));
+
+                // 4. Combine both streams into one unified ledger array
+                const allTransactions = [...normalizedPurchases, ...normalizedSubs];
+
+                // 5. Gather unique user IDs to fetch profile names efficiently in bulk
+                const uniqueUserIds = [...new Set(allTransactions.map(t => t.userId).filter(Boolean))];
+                const userObjectIds = uniqueUserIds.map(id => {
+                    try { return new ObjectId(id); } catch (e) { return null; }
+                }).filter(Boolean);
+
+                const users = await userCollection.find({ _id: { $in: userObjectIds } }).toArray();
+
+                // Map user profile names using their string ID as a lookup dictionary key
+                const userMap = {};
+                users.forEach(u => {
+                    userMap[u._id.toString()] = u.name || "Anonymous Chef";
+                });
+
+                // 6. Merge names into transactions and sort by date descending (Newest First)
+                const enrichedTransactions = allTransactions.map(t => ({
+                    ...t,
+                    userName: userMap[t.userId] || "Anonymous Chef"
+                })).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+                return res.status(200).json(enrichedTransactions);
+
+            } catch (error) {
+                console.error("Error processing admin transactions ledger ledger:", error);
+                return res.status(500).json({ message: "Internal server error compiling financial master ledgers" });
             }
         });
 
