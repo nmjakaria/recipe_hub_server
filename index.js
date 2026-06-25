@@ -889,6 +889,67 @@ async function startServer() {
             }
         });
 
+        // get purchases recipe information by user
+        app.get('/api/user/purchased-recipes/:userId', verifyToken, async (req, res) => {
+            try {
+                const { userId } = req.params;
+
+                // 1. Fetch paid recipe transactions for this specific user string
+                const purchases = await recipePurchasesCollection.find({
+                    userId: userId,
+                    paymentStatus: "paid"
+                }).toArray();
+
+                if (purchases.length === 0) {
+                    return res.status(200).json([]);
+                }
+
+                // 2. Extract unique recipe IDs
+                const recipeIds = purchases.map(p => {
+                    try {
+                        return new ObjectId(p.recipeId?.$oid || p.recipeId);
+                    } catch (e) {
+                        return null;
+                    }
+                }).filter(Boolean);
+
+                // 3. Query the recipes collection using your exact schema fields
+                const recipes = await db.collection("recipes").find({ _id: { $in: recipeIds } }).toArray();
+
+                // Create a lookup dictionary indexed by string ID
+                const recipeMap = {};
+                recipes.forEach(r => {
+                    recipeMap[r._id.toString()] = r;
+                });
+
+                // 4. Combine purchase details with your exact database keys
+                const enrichedBook = purchases.map(p => {
+                    const recipeIdStr = (p.recipeId?.$oid || p.recipeId).toString();
+                    const details = recipeMap[recipeIdStr] || {};
+
+                    return {
+                        purchaseId: p._id.toString(),
+                        recipeId: recipeIdStr,
+                        recipeName: details.recipeName || "Premium Recipe", // 🔴 Updated
+                        recipeImage: details.recipeImage || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?q=80&w=500", // 🔴 Updated
+                        category: details.category || "General",
+                        preparationTime: details.preparationTime ? `${details.preparationTime} mins` : "N/A", // 🔴 Updated
+                        cuisineType: details.cuisineType || "Universal",
+                        difficultyLevel: details.difficultyLevel || "Medium",
+                        amountPaid: parseFloat(p.amount || 0),
+                        transactionId: p.transactionId,
+                        paidAt: p.paidAt
+                    };
+                }).sort((a, b) => new Date(b.paidAt) - new Date(a.paidAt));
+
+                return res.status(200).json(enrichedBook);
+
+            } catch (error) {
+                console.error("Error assembling user recipe book:", error);
+                return res.status(500).json({ message: "Internal server error assembling recipe collection" });
+            }
+        });
+
         // // Check database connectivity
         await client.db("admin").command({ ping: 1 });
         console.log("Connected to MongoDB successfully!");
