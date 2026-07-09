@@ -110,7 +110,8 @@ async function startServer() {
         const reportsCollection = db.collection("reports");
         const userCollection = db.collection("user");
         const recipePurchasesCollection = db.collection("recipe_purchases");
-        const subscriptionCollection = db.collection("subscriptions")
+        const subscriptionCollection = db.collection("subscriptions");
+        const bookmarksCollection = db.collection("bookmarks");
 
         // --- PUBLIC ROUTES ---
 
@@ -947,6 +948,99 @@ async function startServer() {
             } catch (error) {
                 console.error("Error assembling user recipe book:", error);
                 return res.status(500).json({ message: "Internal server error assembling recipe collection" });
+            }
+        });
+
+        /**
+ * 1. Toggle Bookmark State (Add / Remove)
+ * POST /api/user/bookmarks/toggle
+ */
+        app.post('/api/user/bookmarks/toggle', async (req, res) => {
+            try {
+                const { userId, recipeId } = req.body;
+
+                if (!userId || !ObjectId.isValid(recipeId)) {
+                    return res.status(400).json({ success: false, message: "Invalid User ID or Recipe ID format" });
+                }
+
+                const recipeObjectId = new ObjectId(recipeId);
+
+                // Check if the bookmark record already exists
+                const existingBookmark = await bookmarksCollection.findOne({
+                    userId: userId,
+                    recipeId: recipeObjectId
+                });
+
+                if (existingBookmark) {
+                    // Un-bookmark: Remove document from collection
+                    await bookmarksCollection.deleteOne({ _id: existingBookmark._id });
+                    return res.status(200).json({ success: true, bookmarked: false, message: "Recipe removed from bookmarks" });
+                } else {
+                    // Bookmark: Insert new tracking record document
+                    await bookmarksCollection.insertOne({
+                        userId: userId,
+                        recipeId: recipeObjectId,
+                        bookmarkedAt: new Date().toISOString()
+                    });
+                    return res.status(201).json({ success: true, bookmarked: true, message: "Recipe bookmarked successfully" });
+                }
+
+            } catch (error) {
+                console.error("Error toggling bookmark status:", error);
+                res.status(500).json({ success: false, message: "Internal server error modifying bookmark tracks" });
+            }
+        });
+
+
+        /**
+         * 2. Get All Bookmarked Recipes For a User (With Joined Metadata)
+         * GET /api/user/bookmarks/:userId
+         */
+        app.get('/api/user/bookmarks/:userId', async (req, res) => {
+            try {
+                const { userId } = req.params;
+
+                // Fetch user's raw bookmark records
+                const userBookmarks = await bookmarksCollection.find({ userId: userId }).toArray();
+
+                if (userBookmarks.length === 0) {
+                    return res.status(200).json([]);
+                }
+
+                // Extract recipe ObjectIds
+                const recipeIds = userBookmarks.map(b => b.recipeId);
+
+                // Fetch corresponding matching documents from recipes collection
+                const recipes = await db.collection("recipes").find({ _id: { $in: recipeIds } }).toArray();
+
+                // Create dictionary lookup map
+                const recipeMap = {};
+                recipes.forEach(r => {
+                    recipeMap[r._id.toString()] = r;
+                });
+
+                // Enrich bookmark records with current recipe info matching your schema fields
+                const enrichedBookmarks = userBookmarks.map(b => {
+                    const recipeIdStr = b.recipeId.toString();
+                    const details = recipeMap[recipeIdStr] || null;
+
+                    return details ? {
+                        bookmarkId: b._id.toString(),
+                        recipeId: recipeIdStr,
+                        recipeName: details.recipeName,
+                        recipeImage: details.recipeImage,
+                        category: details.category || "General",
+                        preparationTime: details.preparationTime ? `${details.preparationTime} mins` : "N/A",
+                        cuisineType: details.cuisineType || "Universal",
+                        bookmarkedAt: b.bookmarkedAt
+                    } : null;
+                }).filter(Boolean).sort((a, b) => new Date(b.bookmarkedAt) - new Date(a.bookmarkedAt));
+
+                return res.status(200).json(enrichedBookmarks);
+
+            } catch (error) {
+                console.error("Error retrieving user bookmarks catalog:", error);
+                res.status(500).json({ message: "Internal server error fetching bookmarked ledgers" });
             }
         });
 
